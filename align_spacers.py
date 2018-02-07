@@ -41,6 +41,9 @@ def main():
     all_spacers = parse_gff_files(args.input_gffs)
 
     # Create graph, get subgraphs, and then order spacers
+    # TODO: pull out neighbourhood graph
+    # TODO: assign spacers to one of the graphs, should be relatively clear
+    # TODO: plot graph
     graph = generate_graph(all_spacers)
     for i, subgraph_nodes in enumerate(graph.clusters(mode=igraph.WEAK), 1):
         subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
