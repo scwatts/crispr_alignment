@@ -87,13 +87,8 @@ def main():
     # Create graph
     graph = generate_graph(all_spacers)
 
-<<<<<<< HEAD
-   # Get topological order, remove edges to demote graph to acyclic if required
-    order_indices = get_spacer_order(graph)
-=======
     # Get topological order, remove edges to demote graph to acyclic if required
     order_indices, deleted_edge_list = get_spacer_order(graph)
->>>>>>> origin/master
     node_names = list(graph.vs)
     order_names = [node_names[i]['name'] for i in order_indices]
 
