@@ -2,18 +2,16 @@
 import argparse
 import pathlib
 
-
+import csv
 import igraph
 
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_fp', required=True, type=pathlib.Path,
-            help='Input file path containing crispr spacers')
+    parser.add_argument('--input_gffs', '--list', nargs='+', required=True, type=pathlib.Path,
+            help='Input file path containing multiple CRISPRDetect gffs')
 
     args = parser.parse_args()
-    if not args.input_fp.exists():
-        parser.error('Input file %s does not exist' % args.input_fp)
 
     return args
 
@@ -23,14 +21,59 @@ def main():
     args = get_arguments()
 
     # Read in spacers
+    '''
     with args.input_fp.open('r') as fh:
         line_token_gen = (line.rstrip().split() for line in fh)
         all_spacers = {name: spacers for name, *spacers in line_token_gen}
+    '''
 
+    # Read in spacer CSV
+    cas = []
+    for gff in args.input_gffs:
+        with open(gff, newline='') as gff_file:
+            gff_reader = csv.reader(gff_file, delimiter='\t')
+            for row in gff_reader:
+                if row[2] == 'binding_site':
+                    ca = [gff]
+                    row_info = row[8].split(';')
+                    for element in row_info:
+                        ca.append(element.split('=')[1])
+                    cas.append(ca)
+
+    sp_id = 0
+    sp_dict = {}
+
+    all_arrays = []
+    current_array = []
+    
+    name = cas[0][0]
+    current_array.append(cas[0][0])
+    
+    for ca in cas:
+        if ca[1].split('_')[0]=='CRISPR1':
+            current_name = ca[0]
+            if current_name!=name:
+                all_arrays.append(current_array)
+                current_array = []
+                current_array.append(ca[0])
+                name = current_name
+            if ca[4] not in sp_dict:
+                sp_dict[ca[4]] = sp_id
+                sp_id = sp_id + 1
+            current_array.append(sp_dict[ca[4]])
+   
+    all_arrays.append(current_array)
+    print(*all_arrays,sep='\n')
+    
+    all_spacers = {}
+    for x in all_arrays:
+        all_spacers[x[0]] = x[1:]
+    
+    print(all_spacers[x[0]])
     # Create graph
     graph = generate_graph(all_spacers)
 
-    # Get topological order, remove edges to demote graph to acyclic if required
+   # Get topological order, remove edges to demote graph to acyclic if required
     order_indices = get_spacer_order(graph)
     node_names = list(graph.vs)
     order_names = [node_names[i]['name'] for i in order_indices]
