@@ -71,12 +71,15 @@ def parse_gff_files(input_gffs):
     cas = []
     for gff in input_gffs:
         with open(gff, newline='') as gff_file:
+            ca_id = 0
             gff_reader = csv.reader(gff_file, delimiter='\t')
             for row in gff_reader:
+                if row[2] == 'repeat_region':
+                    ca_id = ca_id + 1
                 if row[2] == 'binding_site':
                     ca = [str(gff)]
                     row_info = row[8].split(';')
-                    ca[0] = ca[0] + '_' + row_info[0].split('=')[1].split('_')[0]
+                    ca[0] = ca[0] + '_' + str(ca_id)
                     for element in row_info:
                         ca.append(element.split('=')[1])
                     cas.append(ca)
