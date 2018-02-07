@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import csv
 import pathlib
 
-import csv
+
 import igraph
-
-
-def get_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input_gffs', '--list', nargs='+', required=True, type=pathlib.Path,
-            help='Input file path containing multiple CRISPRDetect gffs')
-
-    args = parser.parse_args()
-
-    return args
 
 
 class OrderedSpacers():
@@ -30,20 +21,43 @@ class OrderedSpacers():
         return '\t'.join([self.name, spacers_str, misorders_str])
 
 
+def get_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_gffs', '--list', nargs='+', required=True, type=pathlib.Path,
+            help='Input file path containing multiple CRISPRDetect gffs')
+
+    args = parser.parse_args()
+
+    return args
+
+
 def main():
     # Get command line arguments
     args = get_arguments()
 
-    # Read in spacers
-    '''
-    with args.input_fp.open('r') as fh:
-        line_token_gen = (line.rstrip().split() for line in fh)
-        all_spacers = {name: spacers for name, *spacers in line_token_gen}
-    '''
+    # Read in CRISPR data from gff files
+    all_spacers = parse_gff_files(args.input_gffs)
 
+    # Create graph, get subgraphs, and then order spacers
+    graph = generate_graph(all_spacers)
+    for subgraph_nodes in graph.clusters(mode=igraph.WEAK):
+        subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
+
+        # Get spacers which match the subgraph
+        subgraph_node_names = [v['name'] for v in list(subgraph.vs)]
+        subspacers = dict()
+        for spacer_name, spacers in all_spacers.items():
+            if len(set(subgraph_node_names).intersection(spacers)) > 0:
+                subspacers[spacer_name] = spacers
+
+        # Order spacers via graph
+        order_graph_spacers(subgraph, subspacers)
+
+
+def parse_gff_files(input_gffs):
     # Read in spacer CSV
     cas = []
-    for gff in args.input_gffs:
+    for gff in input_gffs:
         with open(gff, newline='') as gff_file:
             gff_reader = csv.reader(gff_file, delimiter='\t')
             for row in gff_reader:
@@ -82,20 +96,7 @@ def main():
     for x in all_arrays:
         all_spacers[x[0]] = x[1:]
 
-    # Create graph
-    graph = generate_graph(all_spacers)
-    for subgraph_nodes in graph.clusters(mode=igraph.WEAK):
-        subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
-
-        # Get spacers which match the subgraph
-        subgraph_node_names = [v['name'] for v in list(subgraph.vs)]
-        subspacers = dict()
-        for spacer_name, spacers in all_spacers.items():
-            if len(set(subgraph_node_names).intersection(spacers)) > 0:
-                subspacers[spacer_name] = spacers
-
-        # Order spacers via graph
-        order_graph_spacers(subgraph, subspacers)
+    return all_spacers
 
 
 def order_graph_spacers(graph, all_spacers):
