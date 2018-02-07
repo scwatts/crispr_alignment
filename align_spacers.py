@@ -40,11 +40,14 @@ def main():
     # Read in CRISPR data from gff files
     all_spacers = parse_gff_files(args.input_gffs)
 
-    # Create graph, get subgraphs, and then order spacers
+    # Create graph and plot
+    graph = generate_graph(all_spacers)
+    igraph.plot(graph, '%s_graph_plot.png' % args.output_prefix)
+
     # TODO: pull out neighbourhood graph
     # TODO: assign spacers to one of the graphs, should be relatively clear
-    # TODO: plot graph
-    graph = generate_graph(all_spacers)
+
+    # Pull out subgraphs, assign spacers and then order
     for i, subgraph_nodes in enumerate(graph.clusters(mode=igraph.WEAK), 1):
         subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
 
