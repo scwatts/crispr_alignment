@@ -18,6 +18,19 @@ def get_arguments():
     return args
 
 
+class OrderedSpacers():
+
+    def __init__(self, name, spacers, misordered=False):
+        self.name = name
+        self.spacers = spacers
+        self.misordered = misordered
+
+    def __str__(self):
+        misordered_str = '*' if self.misordered else '-'
+        spacers_str = ' '.join(self.spacers)
+        return '\t'.join([self.name, spacers_str, misordered_str])
+
+
 def main():
     # Get command line arguments
     args = get_arguments()
@@ -36,9 +49,13 @@ def main():
     order_names = [node_names[i]['name'] for i in order_indices]
 
     # Create spacer alignment using order indices
-    alignment = create_alignment(all_spacers, order_names)
-    for name, ordered_spacers in alignment.items():
-        print(name, *ordered_spacers, sep='\t')
+    all_ordered_spacers = order_spacers(all_spacers, order_names)
+
+    # Print output to stdout
+    header = ['spacer_name', 'spacer_alignment', 'misordered']
+    print(*header, sep='\t')
+    for ordered_spacers in all_ordered_spacers:
+        print(ordered_spacers)
 
 
 def generate_graph(all_spacers):
@@ -65,22 +82,28 @@ def get_spacer_order(graph):
     # TODO: clean this up?
     order_indices = graph.topological_sorting()
     if len(order_indices) != len(graph.vs()):
-        rnodes = graph.feedback_arc_set()
         graph.delete_edges(graph.feedback_arc_set())
         return graph.topological_sorting()
     else:
         return order_indices
 
 
-def create_alignment(all_spacers, order_names):
+def order_spacers(all_spacers, order_names):
     # Order spacers lists with determined order
-    ordered_spacers = dict()
+    all_ordered_spacers = list()
     for name, spacers in all_spacers.items():
         order_dict = {s: '-' for s in order_names}
         for spacer in spacers:
             order_dict[spacer] = spacer
-        ordered_spacers[name] = list(order_dict.values())
-    return ordered_spacers
+
+        # Check if the spacer retains biological order and init OrderedSpacer object
+        if spacers == [n for n in order_dict.values() if n != '-']:
+            ordered_spacers = OrderedSpacers(name, order_dict.values())
+        else:
+            ordered_spacers = OrderedSpacers(name, order_dict.values(), misordered=True)
+        all_ordered_spacers.append(ordered_spacers)
+
+    return all_ordered_spacers
 
 
 if __name__ == '__main__':
