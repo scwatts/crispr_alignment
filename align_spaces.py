@@ -24,7 +24,15 @@ def main():
         line_token_gen = (line.rstrip().split() for line in fh)
         spacers = {name: spacers for name, *spacers in line_token_gen}
 
-    print(spacers)
+    # Convert spacer lists to adjacency
+
+    # Try to run topo sorting
+
+    # Otherwise approximate feedback arc set
+
+    # Order spacer lists with determined order
+
+    # Print out results, for now
 
 
 if __name__ == '__main__':
