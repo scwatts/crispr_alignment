@@ -48,7 +48,7 @@ def generate_graph(all_spacers):
     for x in all_spacers:
         for y in all_spacers[x]:
             vert_set.add(y)
-    for x in vert_set:
+    for x in sorted(vert_set):
         graph.add_vertex(x)
 
     # Add vertices from input
