@@ -50,6 +50,7 @@ def main():
                 if row[2] == 'binding_site':
                     ca = [str(gff)]
                     row_info = row[8].split(';')
+                    ca[0] = ca[0] + '_' + row_info[0].split('=')[1].split('_')[0]
                     for element in row_info:
                         ca.append(element.split('=')[1])
                     cas.append(ca)
@@ -64,17 +65,16 @@ def main():
     current_array.append(cas[0][0])
 
     for ca in cas:
-        if ca[1].split('_')[0]=='CRISPR1':
-            current_name = ca[0]
-            if current_name!=name:
-                all_arrays.append(current_array)
-                current_array = []
-                current_array.append(ca[0])
-                name = current_name
-            if ca[4] not in sp_dict:
-                sp_dict[ca[4]] = str(sp_id)
-                sp_id = sp_id + 1
-            current_array.append(sp_dict[ca[4]])
+        current_name = ca[0]
+        if current_name!=name:
+            all_arrays.append(current_array)
+            current_array = []
+            current_array.append(ca[0])
+            name = current_name
+        if ca[4] not in sp_dict:
+            sp_dict[ca[4]] = str(sp_id)
+            sp_id = sp_id + 1
+        current_array.append(sp_dict[ca[4]])
 
     all_arrays.append(current_array)
 
@@ -84,7 +84,21 @@ def main():
 
     # Create graph
     graph = generate_graph(all_spacers)
+    for subgraph_nodes in graph.clusters(mode=igraph.WEAK):
+        subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
 
+        # Get spacers which match the subgraph
+        subgraph_node_names = [v['name'] for v in list(subgraph.vs)]
+        subspacers = dict()
+        for spacer_name, spacers in all_spacers.items():
+            if len(set(subgraph_node_names).intersection(spacers)) > 0:
+                subspacers[spacer_name] = spacers
+
+        # Order spacers via graph
+        order_graph_spacers(subgraph, subspacers)
+
+
+def order_graph_spacers(graph, all_spacers):
     # Get topological order, remove edges to demote graph to acyclic if required
     order_indices, deleted_edge_list = get_spacer_order(graph)
     node_names = list(graph.vs)
