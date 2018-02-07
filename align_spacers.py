@@ -23,8 +23,10 @@ class OrderedSpacers():
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_gffs', '--list', nargs='+', required=True, type=pathlib.Path,
+    parser.add_argument('--input_gffs', nargs='+', required=True, type=pathlib.Path,
             help='Input file path containing multiple CRISPRDetect gffs')
+    parser.add_argument('--output_prefix', type=str, default='./crispr_alignment',
+            help='Output file prefix [Default: ./crispr_alignment]')
 
     args = parser.parse_args()
 
@@ -40,7 +42,7 @@ def main():
 
     # Create graph, get subgraphs, and then order spacers
     graph = generate_graph(all_spacers)
-    for subgraph_nodes in graph.clusters(mode=igraph.WEAK):
+    for i, subgraph_nodes in enumerate(graph.clusters(mode=igraph.WEAK), 1):
         subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
 
         # Get spacers which match the subgraph
@@ -50,8 +52,12 @@ def main():
             if len(set(subgraph_node_names).intersection(spacers)) > 0:
                 subspacers[spacer_name] = spacers
 
+
+        # Get output filepath
+        output_fp = pathlib.Path('%s_group_%s.tsv' % (args.output_prefix, i))
+
         # Order spacers via graph
-        order_graph_spacers(subgraph, subspacers)
+        order_graph_spacers(subgraph, subspacers, output_fp)
 
 
 def parse_gff_files(input_gffs):
@@ -99,7 +105,7 @@ def parse_gff_files(input_gffs):
     return all_spacers
 
 
-def order_graph_spacers(graph, all_spacers):
+def order_graph_spacers(graph, all_spacers, output_fp):
     # Get topological order, remove edges to demote graph to acyclic if required
     order_indices, deleted_edge_list = get_spacer_order(graph)
     node_names = list(graph.vs)
@@ -119,9 +125,10 @@ def order_graph_spacers(graph, all_spacers):
 
     # Print output to stdout
     header = ['spacer_name', 'spacer_alignment', 'misordered']
-    print(*header, sep='\t')
-    for ordered_spacers in all_ordered_spacers:
-        print(ordered_spacers)
+    with output_fp.open('w') as fh:
+        print(*header, sep='\t', file=fh)
+        for ordered_spacers in all_ordered_spacers:
+            print(ordered_spacers, file=fh)
 
 
 def generate_graph(all_spacers):
