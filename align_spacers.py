@@ -27,8 +27,8 @@ class OrderedSpacers():
 
     def __str__(self):
         spacers_str = ' '.join(self.spacers)
-        misorders_gen = (str(n) for ns in self.misorders for n in ns['nodes'])
-        misorders_str = '* '.join([*misorders_gen, ''])
+        misorders_gen = ('({0}, {1})'.format(*e['nodes']) for e in self.misorders)
+        misorders_str = ' '.join(misorders_gen) if self.misorders else '-'
         return '\t'.join([self.name, spacers_str, misorders_str])
 
 
@@ -51,11 +51,12 @@ def main():
 
     # If we have deleted edges, collect them into a dict
     deleted_edges = dict()
-    for edge in deleted_edge_list:
-        try:
-            deleted_edges[edge['name']].append(edge)
-        except KeyError:
-            deleted_edges[edge['name']] = [edge]
+    if deleted_edge_list:
+        for edge in deleted_edge_list:
+            try:
+                deleted_edges[edge['name']].append(edge)
+            except KeyError:
+                deleted_edges[edge['name']] = [edge]
 
     # Create spacer alignment using order indices
     all_ordered_spacers = order_spacers(all_spacers, order_names, deleted_edges)
