@@ -48,7 +48,7 @@ def main():
             gff_reader = csv.reader(gff_file, delimiter='\t')
             for row in gff_reader:
                 if row[2] == 'binding_site':
-                    ca = [gff]
+                    ca = [str(gff)]
                     row_info = row[8].split(';')
                     for element in row_info:
                         ca.append(element.split('=')[1])
@@ -59,10 +59,10 @@ def main():
 
     all_arrays = []
     current_array = []
-    
+
     name = cas[0][0]
     current_array.append(cas[0][0])
-    
+
     for ca in cas:
         if ca[1].split('_')[0]=='CRISPR1':
             current_name = ca[0]
@@ -72,18 +72,16 @@ def main():
                 current_array.append(ca[0])
                 name = current_name
             if ca[4] not in sp_dict:
-                sp_dict[ca[4]] = sp_id
+                sp_dict[ca[4]] = str(sp_id)
                 sp_id = sp_id + 1
             current_array.append(sp_dict[ca[4]])
-   
+
     all_arrays.append(current_array)
-    print(*all_arrays,sep='\n')
-    
+
     all_spacers = {}
     for x in all_arrays:
         all_spacers[x[0]] = x[1:]
-    
-    print(all_spacers[x[0]])
+
     # Create graph
     graph = generate_graph(all_spacers)
 
