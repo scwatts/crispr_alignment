@@ -28,27 +28,33 @@ def main():
         all_spacers = {name: spacers for name, *spacers in line_token_gen}
 
 
-    # TODO: consider node input space and add prior
     # Generate graph structure
     graph = igraph.Graph(directed=True)
-    for name, spacers in all_spacers:
+    nodes = {n for nodes in all_spacers.values() for n in nodes}
+    graph.add_vertices(sorted(nodes))
+    for name, spacers in all_spacers.items():
         # Get all edge pairs
         spacer_iter = (spacers[i:i+2] for i in range(len(spacers)))
         edge_gen = (e for e in spacer_iter if len(e) > 1)
 
         # Add to graph
-        for source_node, target_node for edge_gen:
-            try:
-                graph.add_edge(source_node, target_node)
-            except igraph._igraph.InternalError:
-                if
-                graph.add_vertex(
+        for source_node, target_node in edge_gen:
+            graph.add_edge(source_node, target_node)
 
-    # Try to run topo sorting
-
-    # Otherwise approximate feedback arc set
+    # Try to run topo sorting. If this fails because graph is cyclic, remove nodes to restor
+    # acyclicness
+    # TODO: clean this up
+    ordering = graph.topological_sorting()
+    if len(ordering) != len(graph.vs()):
+        rnodes = graph.feedback_arc_set()
+        graph.delete_edges(graph.feedback_arc_set())
+    ordering = graph.topological_sorting()
 
     # Order spacer lists with determined order
+    # TODO: see output of ordering and then apply
+    print(ordering)
+    print(*(list(graph.vs)[i]['name'] for i in ordering))
+    print(*graph.get_adjacency(), sep='\n')
 
     # Print out results, for now
 
