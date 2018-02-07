@@ -3,6 +3,9 @@ import argparse
 import pathlib
 
 
+import igraph
+
+
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_fp', required=True, type=pathlib.Path,
@@ -22,9 +25,24 @@ def main():
     # Read in spacers
     with args.input_fp.open('r') as fh:
         line_token_gen = (line.rstrip().split() for line in fh)
-        spacers = {name: spacers for name, *spacers in line_token_gen}
+        all_spacers = {name: spacers for name, *spacers in line_token_gen}
 
-    # Convert spacer lists to adjacency
+
+    # TODO: consider node input space and add prior
+    # Generate graph structure
+    graph = igraph.Graph(directed=True)
+    for name, spacers in all_spacers:
+        # Get all edge pairs
+        spacer_iter = (spacers[i:i+2] for i in range(len(spacers)))
+        edge_gen = (e for e in spacer_iter if len(e) > 1)
+
+        # Add to graph
+        for source_node, target_node for edge_gen:
+            try:
+                graph.add_edge(source_node, target_node)
+            except igraph._igraph.InternalError:
+                if
+                graph.add_vertex(
 
     # Try to run topo sorting
 
