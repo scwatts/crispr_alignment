@@ -67,51 +67,48 @@ def main():
 
 
 def parse_gff_files(input_gffs):
-    # Read in spacer CSV
-    cas = []
-    for gff in input_gffs:
-        with open(gff, newline='') as gff_file:
-            ca_id = 0
-            gff_reader = csv.reader(gff_file, delimiter='\t')
-            for row in gff_reader:
-                if row[2] == 'repeat_region':
-                    ca_id = ca_id + 1
-                if row[2] == 'binding_site':
-                    ca = [str(gff)]
-                    row_info = row[8].split(';')
-                    ca[0] = ca[0] + '_' + str(ca_id)
-                    for element in row_info:
-                        ca.append(element.split('=')[1])
-                    cas.append(ca)
+    crisprs = dict()
+    spacer_sequences = dict()
+    spacer_id = 0
+    for gff_fp in input_gffs:
+        with gff_fp.open('r') as fh:
+            # Get only the attribute column from binding_site rows
+            line_token_gen = (line.rstrip().split() for line in fh)
+            spacer_data_gen = (lts[8].split(';') for lts in line_token_gen if lts[2] == 'binding_site')
 
-    sp_id = 0
-    sp_dict = {}
+            # Iterate crispr types and associated spacer sequences
+            for crispr_id, sequences in spacer_aggregator_gen(spacer_data_gen):
+                crispr_spacer_ids = list()
+                for sequence in sequences:
+                    try:
+                        crispr_spacer_ids.append(spacer_sequences[sequence])
+                    except KeyError:
+                        spacer_id += 1
+                        spacer_sequences[sequence] = str(spacer_id)
+                        crispr_spacer_ids.append(str(spacer_id))
 
-    all_arrays = []
-    current_array = []
+                crispr_fq_id = '%s_%s' % (gff_fp.stem, crispr_id)
+                crisprs[crispr_fq_id] = crispr_spacer_ids
 
-    name = cas[0][0]
-    current_array.append(cas[0][0])
+    return crisprs
 
-    for ca in cas:
-        current_name = ca[0]
-        if current_name!=name:
-            all_arrays.append(current_array)
-            current_array = []
-            current_array.append(ca[0])
-            name = current_name
-        if ca[4] not in sp_dict:
-            sp_dict[ca[4]] = str(sp_id)
-            sp_id = sp_id + 1
-        current_array.append(sp_dict[ca[4]])
 
-    all_arrays.append(current_array)
+def spacer_aggregator_gen(spacer_data_gen):
+    crispr_groups = dict()
+    for spacer_data in spacer_data_gen:
+        # Create attribute dict
+        spacer_attr_gen = (sd.split('=') for sd in spacer_data)
+        spacer_attr = {k: v for k, v in spacer_attr_gen}
 
-    all_spacers = {}
-    for x in all_arrays:
-        all_spacers[x[0]] = x[1:]
+        # Aggregate spacer sequence ~ crispr type
+        crispr_id = spacer_attr['Parent']
+        try:
+            crispr_groups[crispr_id].append(spacer_attr['Note'])
+        except KeyError:
+            crispr_groups[crispr_id] = [spacer_attr['Note']]
 
-    return all_spacers
+    for k, v in crispr_groups.items():
+        yield (k, v)
 
 
 def order_graph_spacers(graph, all_spacers, output_fp):
