@@ -1,0 +1,11 @@
+Features
+  1. collapsed contiguous, harmonious regions in resolve spacer graph
+  2. use CRISPRCasFinder output (json format)
+
+Output files:
+  1. spacer content matrix
+    -crispr spacer in order of resolved spacer graph
+  2. node mapping
+    -columns: collapsed node, spacer identifier, spacer nucleotide sequence
+  3. observed spacer order
+    -true spacer order per isolate
