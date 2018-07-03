@@ -1,5 +1,18 @@
 # CRISPR spacer aligner
+[![Build Status](https://travis-ci.org/scwatts/crispr_alignment.svg?branch=master)](https://travis-ci.org/scwatts/crispr_alignment)
+[![Code Coverage](https://codecov.io/gh/scwatts/crispr_alignment/branch/master/graph/badge.svg)](https://codecov.io/gh/scwatts/crispr_alignment)
+[![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
+
 Create strong ordering of CRISPR spacers using graphical topology sorting
+
+
+## Table of contents
+* [Requirements](#requirements)
+* [Installation](#installation)
+* [Usage](#usage)
+* [Todo](#todo)
+* [Contributors](#contributors)
+* [License](#license)
 
 
 ## Requirements
@@ -39,3 +52,7 @@ Output files, data:
 
 ## Contributors
 Stephen Watts, Alex Tokolyi, Kat Holt
+
+
+## License
+[GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html)
