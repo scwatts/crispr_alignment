@@ -210,7 +210,7 @@ def order_graph_spacers(graph, crisprs, output_fp):
     order_spacers(crisprs, order_names, deleted_edges)
 
     # Print output to stdout
-    header = ['spacer_name', 'spacer_alignment', 'misordered']
+    header = ['spacer_name', 'start', 'end', 'spacer_alignment', 'misordered']
     with output_fp.open('w') as fh:
         print(*header, sep='\t', file=fh)
         for crispr in crisprs:
