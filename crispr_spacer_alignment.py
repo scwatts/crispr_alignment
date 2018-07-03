@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import json
 import pathlib
 
 
 import igraph
 
 
-class OrderedSpacers():
+class Crispr:
+
+    def __init__(self, contig, start, end, spacers_seqs):
+        self.contig = contig
+        self.start = start
+        self.end = end
+        self.spacers_seqs = spacers_seqs
+
+        self.spacers = list()
+
+
+class OrderedSpacers:
 
     def __init__(self, name, spacers):
         self.name = name
@@ -23,8 +35,8 @@ class OrderedSpacers():
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_gffs', nargs='+', required=True, type=pathlib.Path,
-            help='Input file path containing multiple CRISPRDetect gffs')
+    parser.add_argument('--input_fps', nargs='+', required=True, type=pathlib.Path,
+            help='Input file path containing multiple CRISPRDetect filepaths')
     parser.add_argument('--output_prefix', type=str, default='./crispr_alignment',
             help='Output file prefix [Default: ./crispr_alignment]')
 
@@ -37,8 +49,8 @@ def main():
     # Get command line arguments
     args = get_arguments()
 
-    # Read in CRISPR data from gff files
-    all_spacers = parse_gff_files(args.input_gffs)
+    # Read in CRISPR data from json files
+    crisprs = parse_json_files(args.input_fps)
 
     # Create graph and plot
     graph = generate_graph(all_spacers)
@@ -66,49 +78,35 @@ def main():
         order_graph_spacers(subgraph, subspacers, output_fp)
 
 
-def parse_gff_files(input_gffs):
-    crisprs = dict()
-    spacer_sequences = dict()
-    spacer_id = 0
-    for gff_fp in input_gffs:
-        with gff_fp.open('r') as fh:
-            # Get only the attribute column from binding_site rows
-            line_token_gen = (line.rstrip().split() for line in fh)
-            spacer_data_gen = (lts[8].split(';') for lts in line_token_gen if lts[2] == 'binding_site')
-
-            # Iterate crispr types and associated spacer sequences
-            for crispr_id, sequences in spacer_aggregator_gen(spacer_data_gen):
-                crispr_spacer_ids = list()
-                for sequence in sequences:
-                    try:
-                        crispr_spacer_ids.append(spacer_sequences[sequence])
-                    except KeyError:
-                        spacer_id += 1
-                        spacer_sequences[sequence] = str(spacer_id)
-                        crispr_spacer_ids.append(str(spacer_id))
-
-                crispr_fq_id = '%s_%s' % (gff_fp.stem, crispr_id)
-                crisprs[crispr_fq_id] = crispr_spacer_ids
-
+def parse_json_files(input_fps):
+    crisprs = list()
+    for input_fp in input_fps:
+        with input_fp.open('r') as fh:
+            input_data = json.loads(fh.read())
+            date, version, command, contigs_data = input_data.values()
+            for crispr in collect_crispr_from_json(contigs_data):
+                crisprs.append(crispr)
     return crisprs
 
 
-def spacer_aggregator_gen(spacer_data_gen):
-    crispr_groups = dict()
-    for spacer_data in spacer_data_gen:
-        # Create attribute dict
-        spacer_attr_gen = (sd.split('=') for sd in spacer_data)
-        spacer_attr = {k: v for k, v in spacer_attr_gen}
+def collect_crispr_from_json(contigs_data):
+    for contig_data in contigs_data:
+        # Skip contigs without crisprs
+        if not contig_data['Crisprs']:
+            continue
 
-        # Aggregate spacer sequence ~ crispr type
-        crispr_id = spacer_attr['Parent']
-        try:
-            crispr_groups[crispr_id].append(spacer_attr['Note'])
-        except KeyError:
-            crispr_groups[crispr_id] = [spacer_attr['Note']]
+        crispr_data_gen = (d for d in contig_data['Crisprs'])
+        contig_name = contig_data['Id']
 
-    for k, v in crispr_groups.items():
-        yield (k, v)
+        # Extract each crispr found on this contig
+        for crispr_data in crispr_data_gen:
+            start = crispr_data['Start']
+            end = crispr_data['End']
+            spacers = [r['Sequence'] for r in crispr_data['Regions'] if r['Type'] == 'Spacer']
+            crispr = Crispr(contig_name, start, end, spacers)
+            yield crispr
+
+
 
 
 def order_graph_spacers(graph, all_spacers, output_fp):
