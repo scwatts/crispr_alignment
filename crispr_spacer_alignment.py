@@ -185,6 +185,7 @@ def parse_cdhit_clusters(data):
     clusters.append(cluster_members)
     return clusters
 
+
 def assign_spacer_clusters(crispr, spacers_clusters):
     # TODO: quantify bottleneck
     for spacer_seq in crispr.spacers_seqs:
@@ -206,7 +207,6 @@ def create_spacer_graph(crisprs):
     for crispr in crisprs:
         for i in range(len(crispr.spacers) - 1):
             graph.add_edge(crispr.spacers[i], crispr.spacers[i+1], name=crispr.name)
-
     return graph
 
 
