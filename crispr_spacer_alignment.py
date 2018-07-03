@@ -54,6 +54,11 @@ def get_arguments():
 
 
 def main():
+    # Require Python 3.6 for set, dict order guarantee
+    if sys.version_info < (3, 6):
+        print('error: %s requires Python 3.6 or above' %  pathlib.Path(__file__).name)
+        sys.exit(1)
+
     # Get command line arguments
     args = get_arguments()
 
