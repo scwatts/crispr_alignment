@@ -67,8 +67,18 @@ def main():
     igraph.plot(graph, '%s_graph_plot.png' % args.output_prefix)
 
     # Order spacers via graph
+    order_graph_spacers(graph, crisprs)
+
+    # Write out strong spacer order
     output_fp = pathlib.Path('%s.tsv' % args.output_prefix)
-    order_graph_spacers(graph, crisprs, output_fp)
+    header = ['spacer_name', 'start', 'end', 'spacer_alignment', 'misordered']
+    with output_fp.open('w') as fh:
+        print(*header, sep='\t', file=fh)
+        for crispr in crisprs:
+            print(crispr.contig, crispr.start, crispr.end, sep='\t', end='\t', file=fh)
+            print(*crispr.strong_order.values(), sep=' ', end='\t', file=fh)
+            misorders = ('(%s, %s)' % (a, b) for a, b in crispr.strong_misorders)
+            print(*misorders, sep=', ', file=fh)
 
 
 def parse_json_files(input_fps):
@@ -200,7 +210,7 @@ def create_spacer_graph(crisprs):
     return graph
 
 
-def order_graph_spacers(graph, crisprs, output_fp):
+def order_graph_spacers(graph, crisprs):
     # Get topological order, remove edges to demote graph to acyclic if required
     order_indices, deleted_edges = get_spacer_order(graph)
     node_names = list(graph.vs)
@@ -208,16 +218,6 @@ def order_graph_spacers(graph, crisprs, output_fp):
 
     # Create spacer alignment using order indices
     order_spacers(crisprs, order_names, deleted_edges)
-
-    # Print output to stdout
-    header = ['spacer_name', 'start', 'end', 'spacer_alignment', 'misordered']
-    with output_fp.open('w') as fh:
-        print(*header, sep='\t', file=fh)
-        for crispr in crisprs:
-            print(crispr.contig, crispr.start, crispr.end, sep='\t', end='\t', file=fh)
-            print(*crispr.strong_order.values(), sep=' ', end='\t', file=fh)
-            misorders = ('(%s, %s)' % (a, b) for a, b in crispr.strong_misorders)
-            print(*misorders, sep=', ', file=fh)
 
 
 def get_spacer_order(graph):
