@@ -256,7 +256,7 @@ def order_spacers(crisprs, order_names, deleted_edges):
             crispr.strong_order[spacer] = spacer
 
         # Record incongruencies between strong and biological ordering
-        if crispr.name in deleted_edges:
+        if deleted_edges and crispr.name in deleted_edges:
             crispr.strong_misorders = deleted_edges[crispr.name]
 
 
