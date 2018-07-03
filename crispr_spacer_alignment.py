@@ -24,21 +24,11 @@ class Crispr:
         self.end = end
         self.spacers_seqs = spacers_seqs
 
+        self.name = '%s_%s_%s' % (self.contig, self.start, self.end)
+
         self.spacers = list()
-
-
-class OrderedSpacers:
-
-    def __init__(self, name, spacers):
-        self.name = name
-        self.spacers = spacers
-        self.misorders = list()
-
-    def __str__(self):
-        spacers_str = ' '.join(self.spacers)
-        misorders_gen = ('({0}, {1})'.format(*e['nodes']) for e in self.misorders)
-        misorders_str = ' '.join(misorders_gen) if self.misorders else '-'
-        return '\t'.join([self.name, spacers_str, misorders_str])
+        self.strong_order = dict()
+        self.strong_misorders = list()
 
 
 def get_arguments():
@@ -69,40 +59,16 @@ def main():
     spacers_clusters = cluster_spacer_sequences(crisprs)
 
     # Assign spacers an appropriate cluster identifier
-    # TODO: quantify bottleneck
     for crispr in crisprs:
-        for spacer_seq in crispr.spacers_seqs:
-            for spacer_set_id, spacer_set in spacers_clusters.items():
-                if spacer_seq in spacer_set:
-                    crispr.spacers.append(spacer_set_id)
-                    break
-            else:
-                raise ValueError('could not find appropriate spacer set')
+        assign_spacer_clusters(crispr, spacers_clusters)
 
     # Create graph and plot
-    graph = generate_graph(all_spacers)
+    graph = create_spacer_graph(crisprs)
     igraph.plot(graph, '%s_graph_plot.png' % args.output_prefix)
 
-    # TODO: pull out neighbourhood graph
-    # TODO: assign spacers to one of the graphs, should be relatively clear
-
-    # Pull out subgraphs, assign spacers and then order
-    for i, subgraph_nodes in enumerate(graph.clusters(mode=igraph.WEAK), 1):
-        subgraph = graph.induced_subgraph(subgraph_nodes, implementation='create_from_scratch')
-
-        # Get spacers which match the subgraph
-        subgraph_node_names = [v['name'] for v in list(subgraph.vs)]
-        subspacers = dict()
-        for spacer_name, spacers in all_spacers.items():
-            if len(set(subgraph_node_names).intersection(spacers)) > 0:
-                subspacers[spacer_name] = spacers
-
-
-        # Get output filepath
-        output_fp = pathlib.Path('%s_group_%s.tsv' % (args.output_prefix, i))
-
-        # Order spacers via graph
-        order_graph_spacers(subgraph, subspacers, output_fp)
+    # Order spacers via graph
+    output_fp = pathlib.Path('%s.tsv' % args.output_prefix)
+    order_graph_spacers(graph, crisprs, output_fp)
 
 
 def parse_json_files(input_fps):
@@ -171,25 +137,23 @@ def cluster_spacer_sequences(crisprs):
     for i, index_set in  enumerate(spacer_clusters_indices, 1):
         spacer_set = {canon_spacers[j] for j in index_set}
         spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
-        spacers_clusters[i] = spacer_set | spacer_rc_set
+        # Cluster symbols must be char otherwise igraph treats as indices
+        spacers_clusters[str(i)] = spacer_set | spacer_rc_set
     return spacers_clusters
 
 
 def run_cdhit(input_fp, output_fp):
     executable = 'cd-hit'
+    command = '%s -i %s -o %s -c 0.90 -d 0' % (executable, input_fp, output_fp)
 
-    command = '%s -i %s -o %s -c 0.95 -d 0' % (executable, input_fp, output_fp)
-
-    # Check for CD-HIT in path
+    # Run CD-HIT and check retcode
     if not shutil.which(executable):
         print('error: could not find %s in PATH' % executable, file=sys.stderr)
         sys.exit(1)
 
-    # Run CD-HIT
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             shell=True, encoding='utf-8')
 
-    # Check retcode before returning
     if result.returncode != 0:
         print('error: failed to run CD-HIT:', file=sys.stderr)
         print(result.stderr, file=sys.stderr)
@@ -206,63 +170,60 @@ def parse_cdhit_clusters(data):
                 clusters.append(cluster_members)
                 cluster_members = set()
             continue
-        print(line)
         cluster_number = int(CDHIT_RE.match(line).group(1))
         cluster_members.add(cluster_number)
+    clusters.append(cluster_members)
     return clusters
 
+def assign_spacer_clusters(crispr, spacers_clusters):
+    # TODO: quantify bottleneck
+    for spacer_seq in crispr.spacers_seqs:
+        for spacer_set_id, spacer_set in spacers_clusters.items():
+            if spacer_seq in spacer_set:
+                crispr.spacers.append(spacer_set_id)
+                break
+        else:
+            raise ValueError('could not find appropriate spacer set')
 
-def order_graph_spacers(graph, all_spacers, output_fp):
+
+def create_spacer_graph(crisprs):
+    # Create the graph, adding vertices and edges
+    graph = igraph.Graph(directed=True)
+    spacers = {s for c in crisprs for s in c.spacers}
+    for vertex in sorted(spacers):
+        graph.add_vertex(vertex)
+
+    for crispr in crisprs:
+        for i in range(len(crispr.spacers) - 1):
+            graph.add_edge(crispr.spacers[i], crispr.spacers[i+1], name=crispr.name)
+
+    return graph
+
+
+def order_graph_spacers(graph, crisprs, output_fp):
     # Get topological order, remove edges to demote graph to acyclic if required
-    order_indices, deleted_edge_list = get_spacer_order(graph)
+    order_indices, deleted_edges = get_spacer_order(graph)
     node_names = list(graph.vs)
     order_names = [node_names[i]['name'] for i in order_indices]
 
-    # If we have deleted edges, collect them into a dict
-    deleted_edges = dict()
-    if deleted_edge_list:
-        for edge in deleted_edge_list:
-            try:
-                deleted_edges[edge['name']].append(edge)
-            except KeyError:
-                deleted_edges[edge['name']] = [edge]
-
     # Create spacer alignment using order indices
-    all_ordered_spacers = order_spacers(all_spacers, order_names, deleted_edges)
+    order_spacers(crisprs, order_names, deleted_edges)
 
     # Print output to stdout
     header = ['spacer_name', 'spacer_alignment', 'misordered']
     with output_fp.open('w') as fh:
         print(*header, sep='\t', file=fh)
-        for ordered_spacers in all_ordered_spacers:
-            print(ordered_spacers, file=fh)
-
-
-def generate_graph(all_spacers):
-    # Create the graph, adding vertice
-    graph = igraph.Graph(directed=True)
-    vert_set = set()
-    for x in all_spacers:
-        for y in all_spacers[x]:
-            vert_set.add(y)
-    for x in sorted(vert_set):
-        graph.add_vertex(x)
-
-    # Add vertices from input
-    for name, spacers in all_spacers.items():
-        for i in range(len(spacers)-1):
-            graph.add_edge(spacers[i], spacers[i+1], name=name)
-
-    return graph
+        for crispr in crisprs:
+            print(crispr.contig, crispr.start, crispr.end, sep='\t', end='\t', file=fh)
+            print(*crispr.strong_order.values(), sep=' ', end='\t', file=fh)
+            misorders = ('(%s, %s)' % (a, b) for a, b in crispr.strong_misorders)
+            print(*misorders, sep=', ', file=fh)
 
 
 def get_spacer_order(graph):
-    # Try to run topo sorting. If this fails because graph is cyclic, remove nodes to restore
-    # acyclicness
-    # TODO: clean this up?
+    # Run topo sorting. If graph is cyclic, remove nodes to restore acyclicness
     order_indices = graph.topological_sorting()
     if len(order_indices) != len(graph.vs()):
-        # Must preserve and return deleted edges here
         edges_to_delete = graph.feedback_arc_set()
         deleted_edges = collect_edge_info(graph, edges_to_delete)
         graph.delete_edges(edges_to_delete)
@@ -274,34 +235,29 @@ def get_spacer_order(graph):
 def collect_edge_info(graph, edge_indices):
     graph_edges = list(graph.es)
     graph_nodes = list(graph.vs)
-    edges = list()
+    edges = dict()
     for edge_index in edge_indices:
-        # Get edge data and append to running list
         edge = graph_edges[edge_index]
-        edge_data = dict()
-        edge_data['name'] = edge['name']
-        edge_data['nodes'] = [graph_nodes[i]['name'] for i in edge.tuple]
-
-        edges.append(edge_data)
-
+        contig_name = edge['name']
+        nodes = [graph_nodes[i]['name'] for i in edge.tuple]
+        try:
+            edges[contig_name].append((nodes))
+        except KeyError:
+            edges[contig_name] = [(nodes)]
     return edges
 
 
-def order_spacers(all_spacers, order_names, deleted_edges):
-    # Order spacers lists with determined order
+def order_spacers(crisprs, order_names, deleted_edges):
+    # Provide and fill out strong ordering to Crispr instances
     all_ordered_spacers = list()
-    for name, spacers in all_spacers.items():
-        order_dict = {s: '-' for s in order_names}
-        for spacer in spacers:
-            order_dict[spacer] = spacer
+    for crispr in crisprs:
+        crispr.strong_order = {s: '-' for s in order_names}
+        for spacer in crispr.spacers:
+            crispr.strong_order[spacer] = spacer
 
-        # Init OrderedSpacers instance and add any misorderings
-        ordered_spacers = OrderedSpacers(name, order_dict.values())
-        if name in deleted_edges:
-            ordered_spacers.misorders = deleted_edges[name]
-        all_ordered_spacers.append(ordered_spacers)
-
-    return all_ordered_spacers
+        # Record incongruencies between strong and biological ordering
+        if crispr.name in deleted_edges:
+            crispr.strong_misorders = deleted_edges[crispr.name]
 
 
 if __name__ == '__main__':
