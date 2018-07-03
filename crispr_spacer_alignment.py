@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 import argparse
-import csv
 import json
 import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
 
 import igraph
+
+
+RC_TABLE = str.maketrans('atgcATGC', 'tacgTACG')
+CDHIT_RE = re.compile('^.+>([0-9]+).+$')
 
 
 class Crispr:
@@ -51,6 +59,9 @@ def main():
 
     # Read in CRISPR data from json files
     crisprs = parse_json_files(args.input_fps)
+
+    # Cluster spacer sequences using CD-HIT
+    spacers_clusters = cluster_spacer_sequences(crisprs)
 
     # Create graph and plot
     graph = generate_graph(all_spacers)
@@ -107,6 +118,81 @@ def collect_crispr_from_json(contigs_data):
             yield crispr
 
 
+def cluster_spacer_sequences(crisprs):
+    # Get spacer sequences and find canonically smallest for each
+    canon_spacers = set()
+    spacer_gen = (s for c in crisprs for s in c.spacers_seqs)
+    for spacer in spacer_gen:
+        spacer_rc = spacer[::-1].translate(RC_TABLE)
+        if spacer <= spacer_rc:
+            canon_spacers.add(spacer)
+        else:
+            canon_spacers.add(spacer_rc)
+
+    # Convert canon_spacers to list, downstream processing requires
+    canon_spacers = list(canon_spacers)
+
+    with tempfile.TemporaryDirectory() as dh:
+        # Write out sequences as FASTA
+        canon_spacers_fp = pathlib.Path(dh, 'spacers.fasta')
+        with canon_spacers_fp.open('w') as fh:
+            for i, spacer in enumerate(canon_spacers, 0):
+                fh.write('>%s\n' % i)
+                fh.write('%s\n' % spacer)
+
+        # Cluster and parse output
+        output_fasta_fp = pathlib.Path(dh, 'result.fasta')
+        output_clusters_fp = pathlib.Path(dh, 'result.fasta.clstr')
+        run_cdhit(canon_spacers_fp, output_fasta_fp)
+
+        with output_clusters_fp.open('r') as fh:
+            cluster_data = fh.readlines()
+    spacer_clusters_indices = parse_cdhit_clusters(cluster_data)
+
+    # Create cluster sets containing spaces with rc
+    spacers_clusters = list()
+    for index_set in  spacer_clusters_indices:
+        spacer_set = {canon_spacers[i] for i in index_set}
+        spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
+        spacers_clusters.append(spacer_set | spacer_rc_set)
+    return spacers_clusters
+
+
+def run_cdhit(input_fp, output_fp):
+    executable = 'cd-hit'
+
+    command = '%s -i %s -o %s -c 0.95 -d 0' % (executable, input_fp, output_fp)
+
+    # Check for CD-HIT in path
+    if not shutil.which(executable):
+        print('error: could not find %s in PATH' % executable, file=sys.stderr)
+        sys.exit(1)
+
+    # Run CD-HIT
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            shell=True, encoding='utf-8')
+
+    # Check retcode before returning
+    if result.returncode != 0:
+        print('error: failed to run CD-HIT:', file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    return result
+
+
+def parse_cdhit_clusters(data):
+    clusters = list()
+    cluster_members = set()
+    for line in data:
+        if line.startswith('>'):
+            if cluster_members:
+                clusters.append(cluster_members)
+                cluster_members = set()
+            continue
+        print(line)
+        cluster_number = int(CDHIT_RE.match(line).group(1))
+        cluster_members.add(cluster_number)
+    return clusters
 
 
 def order_graph_spacers(graph, all_spacers, output_fp):
