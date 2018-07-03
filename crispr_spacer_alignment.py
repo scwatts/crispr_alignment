@@ -68,6 +68,17 @@ def main():
     # Cluster spacer sequences using CD-HIT
     spacers_clusters = cluster_spacer_sequences(crisprs)
 
+    # Assign spacers an appropriate cluster identifier
+    # TODO: quantify bottleneck
+    for crispr in crisprs:
+        for spacer_seq in crispr.spacers_seqs:
+            for spacer_set_id, spacer_set in spacers_clusters.items():
+                if spacer_seq in spacer_set:
+                    crispr.spacers.append(spacer_set_id)
+                    break
+            else:
+                raise ValueError('could not find appropriate spacer set')
+
     # Create graph and plot
     graph = generate_graph(all_spacers)
     igraph.plot(graph, '%s_graph_plot.png' % args.output_prefix)
@@ -152,14 +163,15 @@ def cluster_spacer_sequences(crisprs):
 
         with output_clusters_fp.open('r') as fh:
             cluster_data = fh.readlines()
+
     spacer_clusters_indices = parse_cdhit_clusters(cluster_data)
 
     # Create cluster sets containing spaces with rc
-    spacers_clusters = list()
-    for index_set in  spacer_clusters_indices:
-        spacer_set = {canon_spacers[i] for i in index_set}
+    spacers_clusters = dict()
+    for i, index_set in  enumerate(spacer_clusters_indices, 1):
+        spacer_set = {canon_spacers[j] for j in index_set}
         spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
-        spacers_clusters.append(spacer_set | spacer_rc_set)
+        spacers_clusters[i] = spacer_set | spacer_rc_set
     return spacers_clusters
 
 
