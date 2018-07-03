@@ -25,6 +25,8 @@ crispr_spacer_alignment.py --input_fps input/*.json --output_prefix output/kp_gc
 Features
 - [x] use CRISPRCasFinder output (json format)
 - [ ] collapsed contiguous, harmonious regions in resolve spacer graph
+- [ ] allow optional use of CD-HIT
+- [ ] provide option to search in RC space
 
 Output files, data:
 - [x] spacer content matrix
