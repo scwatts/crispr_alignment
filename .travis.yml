@@ -1,0 +1,11 @@
+language: python
+python: 3.6
+dist: trusty
+addons:
+  apt:
+    packages:
+      - cd-hit
+install: pip3 install .
+before_script: pip3 install codecov python-igraph
+script: coverage run -m unittest
+after_success: codecov
