@@ -44,7 +44,7 @@ def get_arguments():
 
     parser_cluster.add_argument('--native_orientation', action='store_true', default=False,
             help='Do not search reverse complement space for clustering [default: False]')
-    parser_cluster.add_argument('--absoulte_identity', action='store_true', default=False,
+    parser_cluster.add_argument('--absolute_identity', action='store_true', default=False,
             help='Use absolute identity for clustering, skip CD-HIT [default: False]')
 
     parser_cdhit.add_argument('--identity', type=float, default=0.90,
@@ -132,7 +132,7 @@ def cluster_spacer_sequences(crisprs, args):
         spacers = canonical_spacer_sequences(crisprs)
 
     # Run clustering
-    if args.absoulte_identity:
+    if args.absolute_identity:
         spacers_clusters = {s: str(i) for i, s in enumerate(set(spacers), 1)}
     else:
         spacers_clusters = clustering_partial(spacers, args.identity)
