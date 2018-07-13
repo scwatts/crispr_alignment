@@ -32,13 +32,25 @@ class Crispr:
 
 
 def get_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input_fps', nargs='+', required=True, type=pathlib.Path,
+    parser_parent = argparse.ArgumentParser()
+    parser_io = parser_parent.add_argument_group('Input and output')
+    parser_cluster = parser_parent.add_argument_group('Clustering')
+    parser_cdhit = parser_parent.add_argument_group('CD-HIT parameters')
+
+    parser_io.add_argument('--input_fps', nargs='+', required=True, type=pathlib.Path,
             help='Input file path containing multiple CRISPRDetect filepaths')
-    parser.add_argument('--output_prefix', type=str, default='./crispr_alignment',
+    parser_io.add_argument('--output_prefix', type=str, default='./crispr_alignment',
             help='Output file prefix [Default: ./crispr_alignment]')
 
-    args = parser.parse_args()
+    parser_cluster.add_argument('--reverse_complement', action='store_true', default=True,
+            help='Consider reverse complement of sequence during clustering [default: True]')
+    parser_cluster.add_argument('--absoulte_identity', action='store_true', default=False,
+            help='Use absolute identity for clustering, skip CD-HIT [default: False]')
+
+    parser_cdhit.add_argument('--identity', type=str, default='0.90',
+            help='Sequence identity threshold [default: 0.90]')
+
+    args = parser_parent.parse_args()
 
     return args
 
@@ -51,12 +63,13 @@ def main():
 
     # Get command line arguments
     args = get_arguments()
+    print(args)
 
     # Read in CRISPR data from json files
     crisprs = parse_json_files(args.input_fps)
 
-    # Cluster spacer sequences using CD-HIT
-    spacers_clusters = cluster_spacer_sequences(crisprs)
+    # Cluster spacer sequences
+    spacers_clusters = cluster_spacer_sequences(crisprs, args)
 
     # Assign spacers an appropriate cluster identifier
     for crispr in crisprs:
@@ -110,7 +123,47 @@ def collect_crispr_from_json(contigs_data):
             yield crispr
 
 
-def cluster_spacer_sequences(crisprs):
+def cluster_spacer_sequences(crisprs, args):
+    if args.reverse_complement:
+        spacers = canonical_spacers(crisprs)
+    else:
+        spacers = [s for c in crisprs for s in c.spacers_seqs]
+
+    if args.absoulte_identity:
+        pass
+    else:
+        with tempfile.TemporaryDirectory() as dh:
+            # Write out sequences as FASTA
+            spacers_fp = pathlib.Path(dh, 'spacers.fasta')
+            with spacers_fp.open('w') as fh:
+                for i, spacer in enumerate(spacers, 0):
+                    fh.write('>%s\n' % i)
+                    fh.write('%s\n' % spacer)
+
+            # Cluster and parse output
+            output_fasta_fp = pathlib.Path(dh, 'result.fasta')
+            output_clusters_fp = pathlib.Path(dh, 'result.fasta.clstr')
+            word_lendth = cdhit_word_length(float(args.identity))
+            run_cdhit(spacers_fp, output_fasta_fp, args.identity, args.word_length)
+
+            with output_clusters_fp.open('r') as fh:
+                cluster_data = fh.readlines()
+
+        spacer_clusters_indices = parse_cdhit_clusters(cluster_data)
+
+    # Create cluster sets containing spacers, using str(i) for operability with igraph
+    spacers_clusters = dict()
+        for i, index_set in  enumerate(spacer_clusters_indices, 1):
+            spacer_set = {canon_spacers[j] for j in index_set}
+            if args.reverse_complement:
+                spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
+                spacers_clusters[str(i)] = spacer_set | spacer_rc_set
+            else:
+                spacers_clusters[str(i)] = spacer_set
+    return spacers_clusters
+
+
+def canonical_spacer_sequence(crisprs):
     # Get spacer sequences and find canonically smallest for each
     canon_spacers = set()
     spacer_gen = (s for c in crisprs for s in c.spacers_seqs)
@@ -122,39 +175,13 @@ def cluster_spacer_sequences(crisprs):
             canon_spacers.add(spacer_rc)
 
     # Convert canon_spacers to list, downstream processing requires
-    canon_spacers = list(canon_spacers)
-
-    with tempfile.TemporaryDirectory() as dh:
-        # Write out sequences as FASTA
-        canon_spacers_fp = pathlib.Path(dh, 'spacers.fasta')
-        with canon_spacers_fp.open('w') as fh:
-            for i, spacer in enumerate(canon_spacers, 0):
-                fh.write('>%s\n' % i)
-                fh.write('%s\n' % spacer)
-
-        # Cluster and parse output
-        output_fasta_fp = pathlib.Path(dh, 'result.fasta')
-        output_clusters_fp = pathlib.Path(dh, 'result.fasta.clstr')
-        run_cdhit(canon_spacers_fp, output_fasta_fp)
-
-        with output_clusters_fp.open('r') as fh:
-            cluster_data = fh.readlines()
-
-    spacer_clusters_indices = parse_cdhit_clusters(cluster_data)
-
-    # Create cluster sets containing spaces with rc
-    spacers_clusters = dict()
-    for i, index_set in  enumerate(spacer_clusters_indices, 1):
-        spacer_set = {canon_spacers[j] for j in index_set}
-        spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
-        # Cluster symbols must be char otherwise igraph treats as indices
-        spacers_clusters[str(i)] = spacer_set | spacer_rc_set
-    return spacers_clusters
+    return list(canon_spacers)
 
 
-def run_cdhit(input_fp, output_fp):
+def run_cdhit(input_fp, output_fp, identity, word_length):
     executable = 'cd-hit'
-    command = '%s -i %s -o %s -c 0.90 -d 0' % (executable, input_fp, output_fp)
+    command_template = '%s -i %s -o %s -c %s -n %s -d 0'
+    command = command_template % (executable, input_fp, output_fp, identity, word_length)
 
     # Run CD-HIT and check retcode
     if not shutil.which(executable):
@@ -169,6 +196,17 @@ def run_cdhit(input_fp, output_fp):
         print(result.stderr, file=sys.stderr)
         sys.exit(1)
     return result
+
+
+def cdhit_word_length(identity):
+    if identity >= 0.7:
+        return 5
+    elif identity >= 0.6 and identity < 0.7:
+        return 4
+    elif identity >= 0.5 and identity < 0.6:
+        return 3
+    elif identity >= 0.4 and identity < 0.5:
+        return 2
 
 
 def parse_cdhit_clusters(data):
