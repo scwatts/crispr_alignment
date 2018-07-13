@@ -42,15 +42,17 @@ def get_arguments():
     parser_io.add_argument('--output_prefix', type=str, default='./crispr_alignment',
             help='Output file prefix [Default: ./crispr_alignment]')
 
-    parser_cluster.add_argument('--reverse_complement', action='store_true', default=True,
-            help='Consider reverse complement of sequence during clustering [default: True]')
+    parser_cluster.add_argument('--native_orientation', action='store_true', default=False,
+            help='Do not search reverse complement space for clustering [default: False]')
     parser_cluster.add_argument('--absoulte_identity', action='store_true', default=False,
             help='Use absolute identity for clustering, skip CD-HIT [default: False]')
 
-    parser_cdhit.add_argument('--identity', type=str, default='0.90',
+    parser_cdhit.add_argument('--identity', type=float, default=0.90,
             help='Sequence identity threshold [default: 0.90]')
 
     args = parser_parent.parse_args()
+    if args.identity < 0.4 or args.identity > 1.0:
+        parser_parent.error('--identity must be between 0.4 and 1.0')
 
     return args
 
@@ -63,7 +65,6 @@ def main():
 
     # Get command line arguments
     args = get_arguments()
-    print(args)
 
     # Read in CRISPR data from json files
     crisprs = parse_json_files(args.input_fps)
@@ -124,46 +125,27 @@ def collect_crispr_from_json(contigs_data):
 
 
 def cluster_spacer_sequences(crisprs, args):
-    if args.reverse_complement:
-        spacers = canonical_spacers(crisprs)
-    else:
+    # Get spacer sequences
+    if args.native_orientation:
         spacers = [s for c in crisprs for s in c.spacers_seqs]
-
-    if args.absoulte_identity:
-        pass
     else:
-        with tempfile.TemporaryDirectory() as dh:
-            # Write out sequences as FASTA
-            spacers_fp = pathlib.Path(dh, 'spacers.fasta')
-            with spacers_fp.open('w') as fh:
-                for i, spacer in enumerate(spacers, 0):
-                    fh.write('>%s\n' % i)
-                    fh.write('%s\n' % spacer)
+        spacers = canonical_spacer_sequences(crisprs)
 
-            # Cluster and parse output
-            output_fasta_fp = pathlib.Path(dh, 'result.fasta')
-            output_clusters_fp = pathlib.Path(dh, 'result.fasta.clstr')
-            word_lendth = cdhit_word_length(float(args.identity))
-            run_cdhit(spacers_fp, output_fasta_fp, args.identity, args.word_length)
+    # Run clustering
+    if args.absoulte_identity:
+        spacers_clusters = {s: str(i) for i, s in enumerate(set(spacers), 1)}
+    else:
+        spacers_clusters = clustering_partial(spacers, args.identity)
 
-            with output_clusters_fp.open('r') as fh:
-                cluster_data = fh.readlines()
+    # Expand to cover all rc space if needed
+    if not args.native_orientation:
+        spacers_cluster_rc = {s[::-1].translate(RC_TABLE): c for s, c in spacers_clusters.items()}
+        spacers_clusters.update(spacers_cluster_rc)
 
-        spacer_clusters_indices = parse_cdhit_clusters(cluster_data)
-
-    # Create cluster sets containing spacers, using str(i) for operability with igraph
-    spacers_clusters = dict()
-        for i, index_set in  enumerate(spacer_clusters_indices, 1):
-            spacer_set = {canon_spacers[j] for j in index_set}
-            if args.reverse_complement:
-                spacer_rc_set = {s[::-1].translate(RC_TABLE) for s in spacer_set}
-                spacers_clusters[str(i)] = spacer_set | spacer_rc_set
-            else:
-                spacers_clusters[str(i)] = spacer_set
     return spacers_clusters
 
 
-def canonical_spacer_sequence(crisprs):
+def canonical_spacer_sequences(crisprs):
     # Get spacer sequences and find canonically smallest for each
     canon_spacers = set()
     spacer_gen = (s for c in crisprs for s in c.spacers_seqs)
@@ -176,6 +158,27 @@ def canonical_spacer_sequence(crisprs):
 
     # Convert canon_spacers to list, downstream processing requires
     return list(canon_spacers)
+
+
+def clustering_partial(spacers, identity):
+    with tempfile.TemporaryDirectory() as dh:
+        # Write out sequences as FASTA
+        spacers_fp = pathlib.Path(dh, 'spacers.fasta')
+        with spacers_fp.open('w') as fh:
+            for i, spacer in enumerate(spacers, 0):
+                fh.write('>%s\n' % i)
+                fh.write('%s\n' % spacer)
+
+        # Cluster and parse output
+        output_fasta_fp = pathlib.Path(dh, 'result.fasta')
+        output_clusters_fp = pathlib.Path(dh, 'result.fasta.clstr')
+        word_length = cdhit_word_length(identity)
+        run_cdhit(spacers_fp, output_fasta_fp, identity, word_length)
+
+        with output_clusters_fp.open('r') as fh:
+            cluster_data = fh.readlines()
+
+    return parse_cdhit_clusters(cluster_data, spacers)
 
 
 def run_cdhit(input_fp, output_fp, identity, word_length):
@@ -209,29 +212,26 @@ def cdhit_word_length(identity):
         return 2
 
 
-def parse_cdhit_clusters(data):
-    clusters = list()
-    cluster_members = set()
-    for line in data:
+def parse_cdhit_clusters(cluster_data, spacers):
+    cluster_number = 0
+    clusters = dict()
+    for line in cluster_data:
         if line.startswith('>'):
-            if cluster_members:
-                clusters.append(cluster_members)
-                cluster_members = set()
+            cluster_number += 1
             continue
-        cluster_number = int(CDHIT_RE.match(line).group(1))
-        cluster_members.add(cluster_number)
-    clusters.append(cluster_members)
+        spacer_number = int(CDHIT_RE.match(line).group(1))
+        spacer = spacers[spacer_number]
+        clusters[spacer] = cluster_number
     return clusters
 
 
 def assign_spacer_clusters(crispr, spacers_clusters):
-    # TODO: quantify bottleneck
     for spacer_seq in crispr.spacers_seqs:
-        for spacer_set_id, spacer_set in spacers_clusters.items():
-            if spacer_seq in spacer_set:
-                crispr.spacers.append(spacer_set_id)
-                break
-        else:
+        try:
+            # Must use strings are spacer symbols for interop with igraph
+            spacer_symbol = str(spacers_clusters[spacer_seq])
+            crispr.spacers.append(spacer_symbol)
+        except KeyError:
             raise ValueError('could not find appropriate spacer set')
 
 
